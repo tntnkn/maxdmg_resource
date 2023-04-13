@@ -1,10 +1,28 @@
-from typing      import Union, Dict, List
-from .Types      import (State, StateType, StateBehavior, 
-                         Transition, TransitionType, 
-                         Form, FormType, Doc,
-                         ID_TYPE)
-from .Exceptions import (StartNodeAlreadyExists, EndNodeAlreadyExists, 
-                         SourceNodeNotInGraph, TargetNodeNotInGraph)
+from typing      import (
+    Union, 
+    Dict, 
+    List, 
+    Optional, 
+    Tuple,
+)
+from .Types      import (
+    State, 
+    StateType, 
+    StateBehavior, 
+    Transition, 
+    TransitionType, 
+    Form, 
+    FormType, 
+    Doc, 
+    ID_TYPE,
+)
+from .Exceptions import (
+    StartNodeAlreadyExists, 
+    EndNodeAlreadyExists, 
+    SourceNodeNotInGraph, 
+    TargetNodeNotInGraph
+)
+from .Loader.Errors import Errors
 
 
 class Graph():
@@ -15,17 +33,19 @@ class Graph():
 
         self.states      : Dict[ID_TYPE, State]      = dict()
         self.transitions : Dict[ID_TYPE, Transition] = dict()
+        self.errors      : List[Tuple[str, Optional]] = list()
 
     def AddState(self, state : State) -> State:
         if state['id'] in self.states:
             return state 
 
         if state['type'] == StateType.START and self.start_node_id:
-            raise StartNodeAlreadyExists(state) 
-        """ 
-        if state['type'] == StateType.END   and self.end_node_id:
-            raise EndNodeAlreadyExists(state) 
-        """ 
+            self.errors.append(
+                (Errors.GRAPH_START_NODE_ALREADY_EXISTS,
+                 state['name'])
+            )
+            return None
+            #raise StartNodeAlreadyExists(state) 
 
         self.states[state['id']] = state
 
@@ -45,9 +65,19 @@ class Graph():
             return transition
 
         if not self.states.get(transition['source_id'], None):
-            raise SourceNodeNotInGraph(transition['source_id'])
+            self.errors.append(
+                (Errors.GRAPH_SOURCE_NODE_NOT_IN_GRAPH,
+                 transition['name'])
+            )
+            return None
+            #raise SourceNodeNotInGraph(transition['source_id'])
         if not self.states.get(transition['target_id'], None):
-            raise TargetNodeNotInGraph(transition['target_id'])
+            self.errors.append(
+                (Errors.GRAPH_TARGET_NODE_NOT_IN_GRAPH,
+                 transition['name'])
+            )
+            return None
+            #raise TargetNodeNotInGraph(transition['target_id'])
         
         self.transitions[transition['id']] = transition
 
@@ -59,12 +89,20 @@ class Graph():
                 self.end_node_ids.pop(idx)
                 break
         else:
-            raise RuntimeError(
-                f"State {ext_state['name']} is not an end state!")
+            self.errors.append(
+                (Errors.GRAPH_EXTEND_NOT_END_STATE,
+                 ext_state['name'])
+            )
+            return None
+            #raise RuntimeError(f"State {ext_state['name']} is not an end state!")
 
         if ext_state['id'] not in self.states:
-            raise RuntimeError(
-                f"State {ext_state['name']} is not in graph!")
+            self.errors.append(
+                (Errors.GRAPH_EXTEND_END_STATE_NOT_IN_GRAPH,
+                 ext_state['name'])
+            )
+            return None
+            #raise RuntimeError(f"State {ext_state['name']} is not in graph!")
 
         original_state = self.states[ext_state['id']]
         repleace_state = another.states[another.start_node_id]
@@ -73,14 +111,19 @@ class Graph():
                 v['target_id'] = repleace_state['id']
                 break
         else:
-            raise RuntimeError(
-                f"State {ext_state['name']} is not a target of any transition!")
+            self.errors.append(
+                (Errors.GRAPH_EXTEND_END_STATE_IS_NOT_A_TARGET,
+                 ext_state['name'])
+            )
+            return None
+            #raise RuntimeError(f"State {ext_state['name']} is not a target of any transition!")
         self.states.pop(ext_state['id'])
 
         self.end_node_ids.extend(another.end_node_ids)
         self.always_open_ids.extend(another.always_open_ids)
         self.states.update(another.states)
         self.transitions.update(another.transitions)
+        #self.errors.extend(another.errors)
 
 
 

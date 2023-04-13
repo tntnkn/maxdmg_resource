@@ -1,15 +1,38 @@
 from pyairtable  import Table
-from typing      import Dict, Tuple
-
-from ..Types     import (State, StateType, StateBehavior, 
-                         Transition, TransitionType, 
-                         Form, FormType, Doc,
-                         ID_TYPE)
-from ..Graph     import Graph
-from ..Exceptions import UnknownFormType, TableIsEmpty
-from .Models     import (StateFieldsConsts, StateBehaviorConsts, 
-                         TransitionFieldConsts, TransitionTypesConsts, 
-                         FormFieldConsts, DocFieldConsts)
+from typing      import (
+    Dict, 
+    Tuple,
+    Optional,
+)
+from ..Types     import (
+    State, 
+    StateType, 
+    StateBehavior, 
+    Transition, 
+    TransitionType, 
+    Form, 
+    FormType, 
+    Doc, 
+    ID_TYPE
+)
+from ..Graph     import (
+    Graph,
+)
+from ..Exceptions import (
+    UnknownFormType, 
+    TableIsEmpty,
+)
+from .Models     import (
+    StateFieldsConsts, 
+    StateBehaviorConsts, 
+    TransitionFieldConsts, 
+    TransitionTypesConsts, 
+    FormFieldConsts, 
+    DocFieldConsts
+)
+from .Errors    import (
+    Errors,
+)
 
 
 class Loader():
@@ -22,6 +45,7 @@ class Loader():
 
         self.forms : Dict[ID_TYPE, Form] = dict()
         self.docs  : Dict[ID_TYPE, Doc]  = dict()
+        self.errors: List[Tuple[str, Optional]] = list()
 
         self.graph                  = Graph()
 
@@ -65,6 +89,10 @@ class Loader():
             self.graph.AttachAnotherGraph(loader.graph, ext)
             self.forms.update(loader.forms)
             self.docs.update(loader.docs)
+            self.errors.extend(loader.errors)
+
+        self.errors.extend(self.graph.errors)
+        
     
     def load_tables(
             self,
@@ -84,7 +112,8 @@ class Loader():
         self.states_records = states_table.all( 
             view=AIRTABLE_STATES_TABLE_MAIN_VIEW_ID)
         if len(self.states_records) == 0:
-            raise TableIsEmpty('States')
+            self.errors.append((Errors.STATES_TABLE_EMPTY, ))
+            #raise TableIsEmpty('States')
 
         transitions_table   = Table(AIRTABLE_API_KEY, 
                                     AIRTABLE_BASE_ID,
@@ -92,7 +121,8 @@ class Loader():
         self.transitions_records = transitions_table.all( 
             view=AIRTABLE_TRANSITION_TABLE_MAIN_VIEW_ID)
         if len(self.transitions_records) == 0:
-            raise TableIsEmpty('Transitions')
+            self.errors.append((Errors.TRANSITIONS_TABLE_EMPTY, ))
+            #raise TableIsEmpty('Transitions')
 
         forms_table         = Table(AIRTABLE_API_KEY, 
                                     AIRTABLE_BASE_ID,
@@ -101,7 +131,8 @@ class Loader():
         self.forms_records  = forms_table.all(
             view=AIRTABLE_FORMS_TABLE_MAIN_VIEW_ID)
         if len(self.forms_records) == 0:
-            raise TableIsEmpty('Forms')
+            self.errors.append((Errors.FORMS_TABLE_EMPTY, ))
+            #raise TableIsEmpty('Forms')
     
         config_table        = Table(AIRTABLE_API_KEY, 
                                     AIRTABLE_BASE_ID,
@@ -110,7 +141,8 @@ class Loader():
         self.config_records = config_table.all(
             view=AIRTABLE_CONFIG_TABLE_MAIN_VIEW_ID)
         if len(self.config_records) == 0:
-            raise TableIsEmpty('Config')
+            self.errors.append((Errors.CONFIG_TABLE_EMPTY, ))
+            #raise TableIsEmpty('Config')
 
     def process_states_records(self):
         for record in self.states_records:
@@ -155,8 +187,8 @@ class Loader():
                     state['behavior']=StateBehavior.EXTERNAL
                     self.states_external.append(state)
                 case _:
-                    raise RuntimeError(
-                        f"State {state['name']} does not have a behavior set")
+                    self.errors.append( (Errors.STATE_NO_BEHAVIOR, state['name']) )
+                    #raise RuntimeError(f"State {state['name']} does not have a behavior set")
            
             self.graph.AddState(state)
         return self.graph.states
@@ -173,9 +205,9 @@ class Loader():
                         TransitionFieldConsts.NAME, 'NO NAME'),
                     'type': TransitionType.UNKNOWN,
                     'source_id' : fields.get(
-                        TransitionFieldConsts.SOURCE, None)[0],
+                        TransitionFieldConsts.SOURCE, [None,])[0],
                     'target_id' : fields.get(
-                        TransitionFieldConsts.TARGET, None)[0],
+                        TransitionFieldConsts.TARGET, [None,])[0],
                     'form_elem_ids' : fields.get(
                         TransitionFieldConsts.FORM_CONDITIONS, list()),
             }
@@ -190,8 +222,8 @@ class Loader():
                 case TransitionTypesConsts.STRICT:
                     transition['type']=TransitionType.STRICT
                 case _:
-                    raise RuntimeError(
-                      f"Transition {transition['name']} does not have a condition set")
+                    self.errors.append( (Errors.TRANSITION_NO_BEHAVIOR, transition['name']) )
+                    #raise RuntimeError(f"Transition {transition['name']} does not have a condition set")
 
             self.graph.AddTransition(transition)
         return self.graph.transitions
@@ -202,9 +234,11 @@ class Loader():
             fields = record['fields']
             form : Form = {
                 'id'        : record['id'],
-                'name'      : fields[FormFieldConsts.NAME],
+                'name'      : fields.get(
+                    FormFieldConsts.NAME, "NO NAME"),
                 'type'      : FormType.UNKNOWN,
-                'text'      : fields[FormFieldConsts.TEXT],
+                'text'      : fields.get(
+                    FormFieldConsts.TEXT, "NO TEXT"),
                 'state_id'  : fields.get(
                     FormFieldConsts.STATE_ID, None),
                 'tags'      : fields.get(
@@ -217,7 +251,7 @@ class Loader():
                     form['type'] = ft
                     break
             if form['type'] == FormType.UNKNOWN:
-                raise UnknownFormType(form['name'])
+                    self.errors.append( (Errors.FORM_TYPE_UNKNOWN, form['name']) )
 
             if form['state_id']:
                 form['state_id'] = form['state_id'][0]

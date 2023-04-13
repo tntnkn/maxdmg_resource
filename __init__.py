@@ -34,7 +34,8 @@ class MaxDmgLoader():
         return {
             'graph'         : loader.graph,
             'forms'         : loader.forms,
-            'docs'          : loader.docs
+            'docs'          : loader.docs,
+            'errors'        : loader.errors,
         }
 
     def LoadFromConfig(self, config):
